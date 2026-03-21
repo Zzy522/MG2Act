@@ -1,4 +1,3 @@
-```markdown
 # MG2Act: A Deep Learning Framework for PROTAC Degradation Activity Prediction
 This resource library is presented together with the paper "MG2Act: MolGlueDB-Driven Quantitative AI Scoring of CRBN-Mediated Molecular Glue Degradation Efficacy" published by Zhuangzhiyao, Tengdan,XXX et al. in XXXX.
 
@@ -97,9 +96,6 @@ Inference CSV must contain:
 ## 4. Training
 
 Run from the parent directory using module mode:
-```bash
-cd MG2Act
-```
 ```bash
 python -m MG2Actgithub_v1.train \
   --folder MG_data \
