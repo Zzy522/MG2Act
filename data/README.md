@@ -1,4 +1,4 @@
-# Model Weights
+# ESM-C Model Weights
 
 ESM-C Weights (Required)
 
