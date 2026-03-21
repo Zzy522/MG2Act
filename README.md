@@ -1,4 +1,4 @@
-# MG2Act: A Deep Learning Framework for PROTAC Degradation Activity Prediction
+# MG2Act: A Deep Learning Framework for Molecular Glue  Degradation Activity Prediction
 This resource library is presented together with the paper "MG2Act: MolGlueDB-Driven Quantitative AI Scoring of CRBN-Mediated Molecular Glue Degradation Efficacy" published by Zhuangzhiyao, Tengdan,XXX et al. in XXXX.
 
 This repository contains the implementation of **MG2Act**, a deep learning framework for predicting Molecular Glue degradation activity by integrating:
