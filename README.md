@@ -151,4 +151,3 @@ The output CSV will include:
 ## Citation
 
 If you use this repository in your research, please cite your MG2Act paper/project accordingly.
-```
