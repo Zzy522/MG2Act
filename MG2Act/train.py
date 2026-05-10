@@ -131,7 +131,7 @@ def train_fixed_split(train_csv, val_csv, test_csv, args, device):
             y = y.view(-1)
 
             if pred.shape[0] ! = y.shape[0]:
-            raise RuntimeError("Severe dimension mismatch error! The number of predicted values ({pred.shape[0]}) does not match the number of labels ({y.shape[0]}).") )
+                raise RuntimeError("Severe dimension mismatch error! The number of predicted values ({pred.shape[0]}) does not match the number of labels ({y.shape[0]}).") )
 
             loss_vec = crit_train(pred, y)
             loss = loss_vec.mean()
