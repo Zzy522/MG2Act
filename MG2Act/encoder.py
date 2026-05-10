@@ -213,7 +213,7 @@ class GNNMolecularEncoder(nn.Module):
                 features.append(0)
             features = features[:self.node_feat_dim]
 
-                node_features.append(features)
+            node_features.append(features)
 
             if len(node_features) == 0:
                 return None
