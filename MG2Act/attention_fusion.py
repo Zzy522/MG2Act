@@ -82,16 +82,16 @@ class CrossAttentionFusion(nn.Module):
             in_proj_weight = cross_attn.in_proj_weight 
             in_proj_bias = cross_attn.in_proj_bias if cross_attn.in_proj_bias is not None else None
 
-        # Split weights and biases
-        q_proj_weight = in_proj_weight[:self.embed_dim, :]
-        k_proj_weight = in_proj_weight[self.embed_dim:2*self.embed_dim, :]
-
-        if in_proj_bias is not None:
-            q_bias = in_proj_bias[:self.embed_dim]
-            k_bias = in_proj_bias[self.embed_dim:2*self.embed_dim]
-        else:
-            q_bias = None
-            k_bias = None
+            # Split weights and biases
+            q_proj_weight = in_proj_weight[:self.embed_dim, :]
+            k_proj_weight = in_proj_weight[self.embed_dim:2*self.embed_dim, :]
+    
+            if in_proj_bias is not None:
+                q_bias = in_proj_bias[:self.embed_dim]
+                k_bias = in_proj_bias[self.embed_dim:2*self.embed_dim]
+            else:
+                q_bias = None
+                k_bias = None
         else:
             # If using separate weights
             q_proj_weight = cross_attn.q_proj_weight
