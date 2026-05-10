@@ -64,43 +64,47 @@ class MG2ActDataset(Dataset):
     - Supports Bayesian shrinkage target normalization to counter target bias
     """
     def __init__(self, csv_path: str,
-                 col_e3: str = "E3_seq",
-                 col_target: str = "Target_seq",
-                 col_smiles: str = "Molecule_SMILES",
-                 col_activity: str = "Score",
-                 # Bayesian shrinkage normalization parameters
-                 col_target_name: str = "PrimaryTarget",  # Target name column
-                 use_bayesian_norm: bool = False,  # Whether to use Bayesian shrinkage normalization
-                 bayesian_lambda: float = 10.0):  # Bayesian shrinkage parameter
-        super().__init__()
-        df = pd.read_csv(csv_path)
-        needed = [col_e3, col_target, col_smiles, col_activity]
-        for c in needed:
-            if c not in df.columns:
-                raise ValueError(f"CSV缺少列: {c}")
-        df = df.dropna(subset=needed).reset_index(drop=True)
-
-        # Apply Bayesian shrinkage normalization (if enabled)
-        if use_bayesian_norm:
-            # Check if target name column exists
-            if col_target_name not in df.columns:
-                # Silent handling: only print warning when needed
-                df["standardized_score"] = df[col_activity]
+                     col_e3: str = "E3_seq",
+                     col_target: str = "Target_seq",
+                     col_smiles: str = "Molecule_SMILES",
+                     col_activity: str = "Score",
+                     # Bayesian shrinkage normalization parameters
+                     col_target_name: str = "PrimaryTarget",  # Target name column
+                     use_bayesian_norm: bool = False,  # Whether to use Bayesian shrinkage normalization
+                     bayesian_lambda: float = 10.0):  # Bayesian shrinkage parameter
+            super().__init__()
+            df = pd.read_csv(csv_path)
+                         
+            needed = [col_e3, col_target, col_smiles]
+            if col_activity in df.columns:
+                needed.append(col_activity)
+                
+            for c in needed:
+                if c not in df.columns:
+                    raise ValueError(f"CSV Error: {c}")
+                    
+            df = df.dropna(subset=needed).reset_index(drop=True)
+    
+            if use_bayesian_norm and col_target_name in df.columns and col_activity in df.columns:
+                if not df[col_activity].isna().all():
+                    df = bayesian_shrinkage_target_norm(df, col_target_name, col_activity, lambda_=bayesian_lambda)
+                    df[col_activity] = df['standardized_score']
+                else:
+                    df["standardized_score"] = 0.0 
             else:
-                df = bayesian_shrinkage_target_norm(df, col_target_name, col_activity, lambda_=bayesian_lambda)
-                # Update activity column to standardized scores
-                df[col_activity] = df['standardized_score']
-
-        self.samples: List[Sample] = []
-        for _, row in df.iterrows():
-            try:
-                e3 = str(row[col_e3]).strip()
-                tgt = str(row[col_target]).strip()
-                smi = str(row[col_smiles]).strip()
-                y = float(row[col_activity])
-                self.samples.append(Sample(e3, tgt, smi, y))
-            except Exception:
-                continue
+                if col_activity not in df.columns:
+                    df[col_activity] = 0.0
+    
+            self.samples: List[Sample] = []
+            for _, row in df.iterrows():
+                try:
+                    e3 = str(row[col_e3]).strip()
+                    tgt = str(row[col_target]).strip()
+                    smi = str(row[col_smiles]).strip()
+                    y = float(row[col_activity])
+                    self.samples.append(Sample(e3, tgt, smi, y))
+                except Exception:
+                    continue
 
     def __len__(self) -> int:
         return len(self.samples)
