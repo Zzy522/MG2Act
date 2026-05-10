@@ -26,9 +26,11 @@ def evaluate(model, loader, device, crit, return_full=True, mae_only=False):
                 pred = model(e3, tgt, mol).view(-1)
 
                 if pred.shape[0] != y.shape[0]:
-                    m = min(pred.shape[0], y.shape[0])
-                    pred = pred[:m]
-                    y = y[:m]
+                    if pred.shape[0] ! = y.shape[0]:
+                        raise RuntimeError("Severe dimension mismatch error! The number of predicted values ({pred.shape[0]}) does not match the number of labels ({y.shape[0]}).") )
+                    # m = min(pred.shape[0], y.shape[0])
+                    # pred = pred[:m]
+                    # y = y[:m]
 
                 mae = (pred - y).abs().mean()
                 bs = y.numel()
