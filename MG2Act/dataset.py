@@ -67,11 +67,7 @@ class MG2ActDataset(Dataset):
                      col_e3: str = "E3_seq",
                      col_target: str = "Target_seq",
                      col_smiles: str = "Molecule_SMILES",
-                     col_activity: str = "Score",
-                     # Bayesian shrinkage normalization parameters
-                     col_target_name: str = "PrimaryTarget",  # Target name column
-                     use_bayesian_norm: bool = False,  # Whether to use Bayesian shrinkage normalization
-                     bayesian_lambda: float = 10.0):  # Bayesian shrinkage parameter
+                     col_activity: str = "Score"): 
             super().__init__()
             df = pd.read_csv(csv_path)
                          
@@ -85,26 +81,25 @@ class MG2ActDataset(Dataset):
                     
             df = df.dropna(subset=needed).reset_index(drop=True)
     
-            if use_bayesian_norm and col_target_name in df.columns and col_activity in df.columns:
-                if not df[col_activity].isna().all():
-                    df = bayesian_shrinkage_target_norm(df, col_target_name, col_activity, lambda_=bayesian_lambda)
-                    df[col_activity] = df['standardized_score']
-                else:
-                    df["standardized_score"] = 0.0 
-            else:
-                if col_activity not in df.columns:
-                    df[col_activity] = 0.0
-    
-            self.samples: List[Sample] = []
-            for _, row in df.iterrows():
-                try:
-                    e3 = str(row[col_e3]).strip()
-                    tgt = str(row[col_target]).strip()
-                    smi = str(row[col_smiles]).strip()
-                    y = float(row[col_activity])
-                    self.samples.append(Sample(e3, tgt, smi, y))
-                except Exception:
-                    continue
+            if col_activity not in df.columns:
+                        df[col_activity] = 0.0
+            
+                    self.samples: List[Sample] = []
+                    for _, row in df.iterrows():
+                        try:
+                            smi = str(row[col_smiles]).strip()
+                            
+                            # 【关键】源头阻断无法解析的无效SMILES，防止触发维度崩溃报错
+                            mol = Chem.MolFromSmiles(smi)
+                            if mol is None:
+                                continue 
+            
+                            e3 = str(row[col_e3]).strip()
+                            tgt = str(row[col_target]).strip()
+                            y = float(row[col_activity])
+                            self.samples.append(Sample(e3, tgt, smi, y))
+                        except Exception:
+                            continue
 
     def __len__(self) -> int:
         return len(self.samples)
