@@ -141,7 +141,7 @@ class GNNMolecularEncoder(nn.Module):
         elif self.gnn_type == "gat":
             self.convs.append(GATConv(hidden_dim, hidden_dim, heads=4, concat=False))
         else:
-            raise ValueError(f"不支持的 GNN 类型: {gnn_type}")
+            raise ValueError(f"Unsupported GNN type: {gnn_type}")
         self.batch_norms.append(nn.BatchNorm1d(hidden_dim))
 
         for _ in range(num_layers - 2):
