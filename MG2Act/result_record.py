@@ -111,9 +111,9 @@ def save_detailed_results_with_metrics(train_csv, val_csv, test_csv, args, devic
     from .dataset import MG2ActDataset, collate_samples
     from torch.utils.data import DataLoader
 
-    train_ds = MG2ActDataset(train_csv, col_activity="Score", col_target_name="PrimaryTarget")
-    val_ds = MG2ActDataset(val_csv, col_activity="Score", col_target_name="PrimaryTarget")
-    test_ds = MG2ActDataset(test_csv, col_activity="Score", col_target_name="PrimaryTarget")
+    train_ds = MG2ActDataset(train_csv, col_activity="Score")
+    val_ds = MG2ActDataset(val_csv, col_activity="Score")
+    test_ds = MG2ActDataset(test_csv, col_activity="Score")
 
     tr_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=False, collate_fn=collate_samples)
     va_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, collate_fn=collate_samples)
