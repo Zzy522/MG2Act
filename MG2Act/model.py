@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# 导入拆分后的模块
 from .encoder import EnhancedGNNMolecularEncoder, SequenceEncoder
 from .attention_fusion import MultiScaleAttentionFusion, ConcatenationFusion
 from .utils import LayerNorm, ConvPooler
@@ -29,18 +28,18 @@ class MG2ActModel(nn.Module):
                  mlp_hidden: str = "128,64",
                  dropout: float = 0.1,
                  proj_method: str = "conv",  # "conv", "mlp", "linear"
-                 # GNN分子编码器配置
-                 gnn_type: str = "gcn",  # "gcn" 或 "gat"
-                 gnn_layers: int = 3,  # GNN层数
-                 gnn_hidden_dim: int = 128,  # GNN隐藏层维度
-                 node_feat_dim: int = 44,  # 节点特征维度
-                 edge_feat_dim: int = 10,  # 边特征维度
-                 # 官能团注意力配置
-                 use_multiscale_attention: bool = True,  # 是否使用多尺度注意力
-                 custom_functional_groups: dict = None,  # 自定义官能团SMARTS模式
-                 use_fg_only_attention: bool = True,  # 是否只使用官能团级别注意力（跳过原子级别）
-                 enable_fg_boost: bool = True,  # 是否启用官能团增强（对目标官能团使用2倍权重）
-                 fusion_method: str = "attention"):  # 融合方法: "attention" 或 "concat"
+                 # GNN molecule encoder configuration
+                 gnn_type: str = "gcn",  # "gcn" or "gat"
+                 gnn_layers: int = 3,  # Number of GNN layers
+                 gnn_hidden_dim: int = 128,  # GNN hidden layer dimension
+                 node_feat_dim: int = 44,  # Node feature dimension
+                 edge_feat_dim: int = 10,  # Edge feature dimension
+                 # Functional group attention configuration
+                 use_multiscale_attention: bool = True,  # Whether to use multi-scale attention
+                 custom_functional_groups: dict = None,  # Custom functional group SMARTS patterns
+                 use_fg_only_attention: bool = True,  # Whether to use only functional group-level attention (skip atom-level)
+                 enable_fg_boost: bool = True,  # Whether to enable functional group boost (use 2x weight for target functional groups)
+                 fusion_method: str = "attention"):  # Fusion method: "attention" or "concat"
         super().__init__()
         self.device = device
         self.embed_dim = embed_dim
@@ -67,7 +66,7 @@ class MG2ActModel(nn.Module):
             if custom_functional_groups:
                 print(f"[Model init] custom functional groups: {len(custom_functional_groups)}")
 
-        # 1. 蛋白序列编码器（ESMC，返回token级别特征）
+        # 1. Protein sequence encoder (ESMC）
         self.seq_encoder = SequenceEncoder(
             device=device,
             proj_method=proj_method,
@@ -75,7 +74,7 @@ class MG2ActModel(nn.Module):
             dropout=dropout
         )
 
-        # 2. 分子编码器（只返回官能团特征）
+        # 2. Molecule encoder
         self.mol_encoder = EnhancedGNNMolecularEncoder(
             node_feat_dim=node_feat_dim,
             edge_feat_dim=edge_feat_dim,
@@ -87,7 +86,7 @@ class MG2ActModel(nn.Module):
             custom_functional_groups=custom_functional_groups
         ).to(device)
         
-        # 3. 特征融合模块
+        # 3. Feature fusion module
         self.fusion_method = fusion_method
         if fusion_method == "attention":
             self.fusion = MultiScaleAttentionFusion(
@@ -103,12 +102,12 @@ class MG2ActModel(nn.Module):
                 dropout=dropout,
             )
         else:
-            raise ValueError(f"不支持的融合方法: {fusion_method}")
+            raise ValueError(f"Unsupported fusion method: {fusion_method}")
         
-        # 4. 预测头
+        # 4. Prediction head
         hidden_dims = [int(x) for x in mlp_hidden.split(',')]
         
-        # 输入：最终融合特征 + 阶段1特征
+        # Input: final fused features + stage 1 features
         input_dim = embed_dim * 2  # h_final + h_stage1
         
         layers = []
@@ -121,11 +120,10 @@ class MG2ActModel(nn.Module):
                 nn.Dropout(dropout),
             ])
             prev_dim = h_dim
-        layers.append(nn.Linear(prev_dim, 1))  # 输出单个分数
+        layers.append(nn.Linear(prev_dim, 1)) 
         
         self.prediction_head = nn.Sequential(*layers)
         
-        # 确保所有模块在正确的设备上
         self.to(device)
         
         # Reduce output (print only in verbose mode)
@@ -139,27 +137,7 @@ class MG2ActModel(nn.Module):
                 tgt_seqs: List[str], 
                 smiles_list: List[str],
                 return_attention: bool = False):
-        """
-        Token级别注意力前向传播
 
-        参数:
-            e3_seqs: E3连接酶序列列表 [B]
-            tgt_seqs: 靶点蛋白序列列表 [B]
-            smiles_list: SMILES分子列表 [B]
-            return_attention: 是否返回注意力权重（仅返回第一个样本的注意力）
-
-        返回:
-            如果 return_attention=False:
-                预测分数 [B]
-            如果 return_attention=True:
-                score: 预测分数 [B]
-                attention_stage1: 阶段1原子注意力权重 [N_mol, L_e3]（第一个分子的，所有头平均后）
-                attention_stage2: 阶段2原子注意力权重 [N_mol, L_tgt]（第一个分子的，所有头平均后）
-                (如果use_multiscale_attention=True，还会返回:)
-                fg_attention_stage1: 阶段1官能团注意力权重 [N_fg, L_e3]（第一个分子的，所有头平均后）
-                fg_attention_stage2: 阶段2官能团注意力权重 [N_fg, L_tgt]（第一个分子的，所有头平均后）
-                fg_info: 官能团信息列表 [List[List[Dict]]]（每个分子的官能团信息）
-        """
         # 1. Encode protein sequences
         # Decide whether to return token-level features based on fusion method
         if self.fusion_method == "attention":
@@ -178,11 +156,11 @@ class MG2ActModel(nn.Module):
         # 2. Encode molecules (return only functional group features)
         _, _, v_fg_features, fg_info = self.mol_encoder(smiles_list)
 
-        # 3. 特征融合
+        # 3. Feature fusion module
         if self.fusion_method == "attention":
             fusion_output = self.fusion(
-                v_mol_nodes=None,  # 不再使用原子级别特征
-                mol_batch_indices=None,  # 不再使用原子索引
+                v_mol_nodes=None, 
+                mol_batch_indices=None, 
                 v_fg_features=v_fg_features,
                 v_e3_tokens=v_e3_tokens,
                 v_tgt_tokens=v_tgt_tokens,
@@ -190,24 +168,23 @@ class MG2ActModel(nn.Module):
                 fg_info=fg_info
             )
         else:
-            # concat方法：直接使用池化特征
+            # concat
             fusion_output = self.fusion(
                 v_mol_nodes=None,
                 mol_batch_indices=None,
                 v_fg_features=v_fg_features,
-                v_e3_tokens=None,  # 不再使用token级别特征
-                v_tgt_tokens=None,  # 不再使用token级别特征
-                v_e3_pooled=v_e3_pooled,  # 直接传入池化特征
-                v_tgt_pooled=v_tgt_pooled,  # 直接传入池化特征
+                v_e3_tokens=None, 
+                v_tgt_tokens=None,  
+                v_e3_pooled=v_e3_pooled, 
+                v_tgt_pooled=v_tgt_pooled,  
                 return_attention=return_attention,
                 fg_info=fg_info
             )
         
         if return_attention:
-            # 只返回官能团注意力
             h_final, h_stage1, fg_attention_stage1, fg_attention_stage2, fg_info = fusion_output
-            attention_stage1 = None  # 不再使用原子注意力
-            attention_stage2 = None  # 不再使用原子注意力
+            attention_stage1 = None  
+            attention_stage2 = None  
         else:
             h_final, h_stage1 = fusion_output
             attention_stage1 = None
@@ -226,7 +203,6 @@ class MG2ActModel(nn.Module):
         score = self.prediction_head(pred_input).squeeze(-1)  # [B]
 
         if return_attention:
-            # 只返回官能团注意力
             return score, fg_attention_stage1, fg_attention_stage2, fg_info
         else:
             return score
