@@ -29,18 +29,15 @@ def train_fixed_split(train_csv, val_csv, test_csv, args, device):
     # Load datasets
     train_ds = MG2ActDataset(
         train_csv,
-        col_activity="Score",
-        col_target_name="PrimaryTarget"
+        col_activity="Score"
     )
     val_ds = MG2ActDataset(
         val_csv,
-        col_activity="Score",
-        col_target_name="PrimaryTarget"
+        col_activity="Score"
     )
     test_ds = MG2ActDataset(
         test_csv,
-        col_activity="Score",
-        col_target_name="PrimaryTarget"
+        col_activity="Score"
     )
     
     tr_loader = DataLoader(train_ds, batch_size=args.batch_size, 
