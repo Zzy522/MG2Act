@@ -4,10 +4,10 @@ and a CSV with inference fields (must contain columns: E3_seq, Target_seq, Molec
 automatically parses architecture, loads weights, and outputs CSV with predictions.
 
 Usage examples:
-    python -m MG2Actgithub_v1.predict_infer \
-        --input many_data/YFC_inhome_e3p.csv \
-        --model_dir model_new/1206gat_b \
-        --output model_new/1206gat_b/predictions.csv \
+    python -m MG2Act.predict_infer \
+        --input data/test.csv \
+        --model_dir model_wt \
+        --output predict/predictions.csv \
         --device cuda:0
 """
 
