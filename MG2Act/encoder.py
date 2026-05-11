@@ -8,7 +8,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# 检查依赖
 RDKIT_AVAILABLE = False
 TORCH_GEOMETRIC_AVAILABLE = False
 
@@ -43,7 +42,7 @@ class FunctionalGroupDetector:
         """
         # Default common functional groups (extended: includes more N-heterocycles and important groups)
         self.default_smarts = {
-            # 基础官能团
+            # Basic functional groups
             'amide': '[C;$(C=O)]N',
             'carboxylic_acid': 'C(=O)[O;H]',
             'ester': 'C(=O)[O]',
@@ -59,12 +58,11 @@ class FunctionalGroupDetector:
             'furan': 'c1ccoc1'
         }
 
-        # 合并自定义SMARTS
+        # Merge custom SMARTS, clear cache
         self.smarts_patterns = self.default_smarts.copy()
         if custom_smarts:
             self.smarts_patterns.update(custom_smarts)
 
-        # 性能优化：预编译所有SMARTS模式（避免每次调用时重复编译）
         self.compiled_patterns = {}
         for name, smarts in self.smarts_patterns.items():
             try:
@@ -72,7 +70,6 @@ class FunctionalGroupDetector:
                 if pattern:
                     self.compiled_patterns[name] = pattern
             except Exception as e:
-                # 如果SMARTS无效，跳过
                 continue
 
     def extract_functional_groups(self, mol):
@@ -87,12 +84,10 @@ class FunctionalGroupDetector:
 
         functional_groups = []
 
-        # 使用预编译的模式，避免重复编译SMARTS
         for name, pattern in self.compiled_patterns.items():
             try:
                 matches = mol.GetSubstructMatches(pattern)
                 for match in matches:
-                    # 计算中心原子（通常是第一个原子）
                     center_atom = match[0] if len(match) > 0 else None
                     functional_groups.append({
                         'name': name,
@@ -101,7 +96,6 @@ class FunctionalGroupDetector:
                         'num_atoms': len(match)
                     })
             except Exception as e:
-                # 如果匹配失败，跳过
                 continue
 
         return functional_groups
@@ -116,12 +110,12 @@ class GNNMolecularEncoder(nn.Module):
     Enables token-level attention mechanisms to focus on specific functional groups.
     """
     def __init__(self,
-                 node_feat_dim: int = 44,  # 原子特征维度
-                 edge_feat_dim: int = 10,  # 化学键特征维度
+                 node_feat_dim: int = 44, 
+                 edge_feat_dim: int = 10, 
                  hidden_dim: int = 128,
                  num_layers: int = 3,
-                 output_dim: int = 64,  # 最终每个节点的输出维度
-                 gnn_type: str = "gcn",  # "gcn" 或 "gat"
+                 output_dim: int = 64, 
+                 gnn_type: str = "gcn",
                  dropout: float = 0.1):
         super().__init__()
         self.node_feat_dim = node_feat_dim
@@ -132,19 +126,16 @@ class GNNMolecularEncoder(nn.Module):
         self.num_layers = num_layers
 
         if not RDKIT_AVAILABLE:
-            raise ImportError("RDKit 未安装，无法使用 GNN 编码器。请运行: pip install rdkit")
+            raise ImportError("RDKit is not installed. Cannot use the GNN encoder. Please run: pip install rdkit")
 
         if not TORCH_GEOMETRIC_AVAILABLE:
-            raise ImportError("torch_geometric 未安装，无法使用 GNN 编码器。请运行: pip install torch-geometric")
+            raise ImportError("torch_geometric is not installed. Cannot use the GNN encoder. Please run: pip install torch-geometric")
 
-        # 节点特征嵌入层
         self.node_embed = nn.Linear(node_feat_dim, hidden_dim)
 
-        # GNN 层
         self.convs = nn.ModuleList()
         self.batch_norms = nn.ModuleList()
 
-        # 输入层
         if self.gnn_type == "gcn":
             self.convs.append(GCNConv(hidden_dim, hidden_dim))
         elif self.gnn_type == "gat":
@@ -153,7 +144,6 @@ class GNNMolecularEncoder(nn.Module):
             raise ValueError(f"不支持的 GNN 类型: {gnn_type}")
         self.batch_norms.append(nn.BatchNorm1d(hidden_dim))
 
-        # 隐藏层
         for _ in range(num_layers - 2):
             if self.gnn_type == "gcn":
                 self.convs.append(GCNConv(hidden_dim, hidden_dim))
@@ -161,7 +151,6 @@ class GNNMolecularEncoder(nn.Module):
                 self.convs.append(GATConv(hidden_dim, hidden_dim, heads=4, concat=False))
             self.batch_norms.append(nn.BatchNorm1d(hidden_dim))
 
-        # 输出层（投影到output_dim）
         if num_layers > 1:
             if self.gnn_type == "gcn":
                 self.convs.append(GCNConv(hidden_dim, hidden_dim))
@@ -169,7 +158,6 @@ class GNNMolecularEncoder(nn.Module):
                 self.convs.append(GATConv(hidden_dim, hidden_dim, heads=4, concat=False))
             self.batch_norms.append(nn.BatchNorm1d(hidden_dim))
 
-        # 最终投影层（将每个节点特征投影到output_dim）
         self.node_projection = nn.Sequential(
             nn.Linear(hidden_dim, output_dim),
             nn.LayerNorm(output_dim),
@@ -296,11 +284,10 @@ class GNNMolecularEncoder(nn.Module):
             empty_indices = [torch.tensor([], dtype=torch.long, device=device) for _ in range(batch_size)]
             return dummy_node, empty_indices
 
-        # 批处理图
         batch = Batch.from_data_list(graphs)
         x = batch.x  # [N_total, node_feat_dim]
         edge_index = batch.edge_index  # [2, E_total]
-        batch_idx = batch.batch  # [N_total] 每个节点属于哪个图
+        batch_idx = batch.batch  # [N_total]
 
         # Node feature embedding
         x = self.node_embed(x)  # [N_total, hidden_dim]
@@ -355,7 +342,6 @@ class EnhancedGNNMolecularEncoder(nn.Module):
                  custom_functional_groups: dict = None):
         super().__init__()
 
-        # 原有的原子级别GNN编码器
         self.atom_encoder = GNNMolecularEncoder(
             node_feat_dim=node_feat_dim,
             edge_feat_dim=edge_feat_dim,
@@ -366,10 +352,8 @@ class EnhancedGNNMolecularEncoder(nn.Module):
             dropout=dropout
         )
 
-        # 官能团检测器
         self.fg_detector = FunctionalGroupDetector(custom_functional_groups)
 
-        # 官能团特征编码器（每个官能团类型一个MLP）
         self.fg_encoders = nn.ModuleDict()
         for fg_name in self.fg_detector.smarts_patterns.keys():
             self.fg_encoders[fg_name] = nn.Sequential(
@@ -379,7 +363,6 @@ class EnhancedGNNMolecularEncoder(nn.Module):
                 nn.Dropout(dropout)
             )
 
-        # 通用官能团编码器（用于未知类型）
         self.fg_encoder_generic = nn.Sequential(
             nn.Linear(output_dim, output_dim),
             nn.LayerNorm(output_dim),
@@ -476,11 +459,9 @@ class SequenceEncoder(nn.Module):
         self.proj_method = proj_method
         self.embed_dim = embed_dim
 
-        # 添加这一行
         import os
         os.environ.setdefault("INFRA_PROVIDER", "True")
     
-        # ESMC编码器
         self.esmc = ESMC.from_pretrained("esmc_300m", device=device)
         self.tokenizer = EsmSequenceTokenizer()
 
@@ -494,26 +475,19 @@ class SequenceEncoder(nn.Module):
         # Cache encoded results: Support both pooled and token-level features
         self.cache = {}  # Format: {seq: {"pooled": tensor, "tokens": tensor}}
 
-        # 获取模型维度
         with torch.no_grad():
             tmp_tokens = self.tokenizer.encode("M")
             tmp_tensor = ESMProteinTensor(sequence=torch.tensor(tmp_tokens).to(device))
             tmp_logits = self.esmc.logits(tmp_tensor, LogitsConfig(sequence=True, return_embeddings=True))
             self.d_model = tmp_logits.embeddings.shape[-1]
 
-        # 构建高级蛋白质投影器
         self.protein_projector = self._build_projector()
-        # 确保模块在目标设备上
         self.to(self.device)
 
     def _build_projector(self):
-        """构建蛋白质特征投影器"""
         if self.proj_method == "conv":
-            # ConvPooler: 适用于序列特征，提取空间模式
-            # 使用自定义ConvPooler而不是Sequential
             return ConvPooler(self.d_model, self.embed_dim, kernel_size=3, stride=1)
         elif self.proj_method == "mlp":
-            # 多层感知机: 更强的非线性变换
             return nn.Sequential(
                 nn.Linear(self.d_model, self.embed_dim * 4),
                 nn.LayerNorm(self.embed_dim * 4),
@@ -555,14 +529,13 @@ class SequenceEncoder(nn.Module):
                 projected = self.protein_projector(emb_in)  # [1, L', embed_dim]
                 return projected.squeeze(0)  # [L', embed_dim]
             else:
-                # MLP/Linear: 对每个token单独投影
+                # MLP/Linear
                 return self.protein_projector(emb)  # [L, embed_dim]
         elif emb.dim() == 3:  # [1, L, D]
             if self.proj_method == "conv":
                 projected = self.protein_projector(emb)  # [1, L', embed_dim]
                 return projected.squeeze(0)  # [L', embed_dim]
             else:
-                # 对每个token单独投影
                 emb_flat = emb.view(-1, emb.size(-1))  # [L, D]
                 return self.protein_projector(emb_flat)  # [L, embed_dim]
         else:
@@ -571,7 +544,7 @@ class SequenceEncoder(nn.Module):
     def _pool_embedding(self, emb: torch.Tensor):
         """Internal method: Pool ESMC embeddings"""
         if self.proj_method == "conv":
-            # ConvPooler 期望 [B, L, D]
+            # ConvPooler  [B, L, D]
             if emb.dim() == 2:
                 emb_in = emb.unsqueeze(0)  # [1, L, D]
             elif emb.dim() == 3 and emb.size(0) == 1:
@@ -581,7 +554,7 @@ class SequenceEncoder(nn.Module):
             projected = self.protein_projector(emb_in)  # [1, L', embed_dim]
             return projected.mean(dim=1).squeeze(0)  # [embed_dim]
         else:
-            # MLP/Linear: 先池化序列维
+            # MLP/Linear
             if emb.dim() == 2:
                 emb_pooled = emb.mean(dim=0)
             elif emb.dim() == 3:
@@ -602,7 +575,6 @@ class SequenceEncoder(nn.Module):
             If return_token_level=False: Encoded vectors [B, embed_dim]
         """
         if return_token_level:
-            # 返回token级别特征
             token_outputs = []
 
             for seq in seq_list:
@@ -630,7 +602,6 @@ class SequenceEncoder(nn.Module):
 
             return token_outputs
         else:
-            # 返回池化后的特征（保持向后兼容）
             outputs: List[torch.Tensor] = []
 
             for seq in seq_list:
@@ -689,7 +660,7 @@ class SequenceEncoder(nn.Module):
                     pass
 
     def clear_cache(self):
-        """清除缓存"""
+        """Clear cache"""
         self.cache.clear()
 
     def get_cache_info(self):
@@ -712,7 +683,7 @@ class SequenceEncoder(nn.Module):
 
 
 class EnhancedSequenceEncoder(nn.Module):
-    """增强的蛋白质序列编码器"""
+    """Enhanced protein sequence encoder"""
 
     def __init__(self, device: torch.device = torch.device("cpu"),
                  proj_method: str = "conv",  # "conv", "mlp", "linear"
@@ -723,7 +694,6 @@ class EnhancedSequenceEncoder(nn.Module):
         self.proj_method = proj_method
         self.embed_dim = embed_dim
 
-        # ESMC编码器（保持不变）
         self.esmc = ESMC.from_pretrained("esmc_300m", device=device)
         self.tokenizer = EsmSequenceTokenizer()
 
@@ -748,7 +718,7 @@ class EnhancedSequenceEncoder(nn.Module):
         self.to(self.device)
 
     def _build_projector(self):
-        """构建蛋白质特征投影器"""
+        """Build protein feature projector"""
         if self.proj_method == "conv":
             return ConvPooler(self.d_model, self.embed_dim, kernel_size=3, stride=1)
         elif self.proj_method == "mlp":
@@ -768,17 +738,15 @@ class EnhancedSequenceEncoder(nn.Module):
             return nn.Linear(self.d_model, self.embed_dim)
 
     def forward(self, seq_list: List[str]) -> torch.Tensor:
-        """编码蛋白质序列"""
+        """Build protein feature projector"""
         outputs = []
 
         for seq in seq_list:
-            # 缓存检查
             if not self.training and seq in self.cache:
                 pooled = self.cache[seq].to(self.device)
                 outputs.append(pooled)
                 continue
 
-            # 获取ESMC嵌入
             tokens = self.tokenizer.encode(seq)
             prot = ESMProteinTensor(sequence=torch.tensor(tokens).to(self.device))
 
@@ -791,17 +759,17 @@ class EnhancedSequenceEncoder(nn.Module):
 
             # Advanced dimensionality reduction
             if self.proj_method == "conv":
-                # ConvPooler 期望输入 [B, L, D]
+                # ConvPooler  [B, L, D]
                 if emb.dim() == 2:
                     emb_in = emb.unsqueeze(0)  # [1, L, D]
                 elif emb.dim() == 3 and emb.size(0) == 1:
                     emb_in = emb  # [1, L, D]
                 else:
-                    emb_in = emb  # 兜底
+                    emb_in = emb  
                 projected = self.protein_projector(emb_in)  # [1, L', embed_dim]
                 pooled = projected.mean(dim=1).squeeze(0)  # [embed_dim]
             else:
-                # MLP/Linear: 先对序列维做平均池化到 [D]
+                # MLP/Linear: [D]
                 if emb.dim() == 2:  # [L, D]
                     emb_pooled = emb.mean(dim=0)  # [D]
                 elif emb.dim() == 3:  # [B, L, D]
