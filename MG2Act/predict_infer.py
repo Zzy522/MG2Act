@@ -120,7 +120,7 @@ def parse_args() -> argparse.Namespace:
         "--device",
         type=str,
         default="cuda:0" if torch.cuda.is_available() else "cpu",
-        help="设备，例如 cpu 或 cuda:0",
+        help="cpu or cuda:0",
     )
     parser.add_argument("--quiet", action="store_true", help="少打印日志")
     return parser.parse_args()
