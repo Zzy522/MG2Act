@@ -7,6 +7,7 @@ This repository contains the implementation of **MG2Act**, a deep learning frame
 - Molecular graph representation (GNN)
 - Functional-group-aware attention fusion
 
+![image](https://github.com/Zzy522/MG2Act/blob/main/Picture.png)
 ---
 
 ## 📁 Table of Contents
@@ -97,7 +98,7 @@ Inference CSV must contain:
 
 Run from the parent directory using module mode:
 ```bash
-python -m MG2Actgithub_v1.train \
+python -m MG2Act.train \
   --folder MG_data \
   --epochs 200 \
   --batch_size 8 \
@@ -127,7 +128,7 @@ Training outputs include the best checkpoint `mg2act_best.pt` and result metadat
 ## 5. Inference
 
 ```bash
-python -m MG2Actgithub_v1copy.predict_infer \
+python -m MG2Act.predict_infer \
   --input /path/to/infer.csv \
   --model_dir /path/to/model_dir \
   --output /path/to/predictions.csv \
