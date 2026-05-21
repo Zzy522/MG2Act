@@ -16,43 +16,6 @@ class Sample:
     smiles: str
     activity: float
 
-
-def bayesian_shrinkage_target_norm(df, target_col, score_col, lambda_=10):
-    """
-    Bayesian shrinkage target normalization.
-    Counteracts "target bias" by using global statistics when target has few samples.
-
-    Args:
-        df: DataFrame
-        target_col: Target column name (e.g., PrimaryTarget)
-        score_col: Score column name (e.g., Score)
-        lambda_: Shrinkage strength, higher values favor global statistics
-
-    Returns:
-        DataFrame with standardized_score column
-    """
-    # Global mean and variance
-    global_mean = df[score_col].mean()
-    global_std = df[score_col].std()
-
-    result_df = df.copy()
-    result_df['standardized_score'] = np.nan
-
-    for target, sub in df.groupby(target_col):
-        n = len(sub)
-        mu_t = sub[score_col].mean()
-        sigma_t = sub[score_col].std()
-
-        # Bayesian shrinkage: Shrink to global mean when few samples
-        mu_t_shrink = (n / (n + lambda_)) * mu_t + (lambda_ / (n + lambda_)) * global_mean
-        sigma_t_shrink = np.sqrt((n / (n + lambda_)) * sigma_t**2 + (lambda_ / (n + lambda_)) * global_std**2)
-
-        # Standardization
-        result_df.loc[sub.index, 'standardized_score'] = (sub[score_col] - mu_t_shrink) / sigma_t_shrink
-
-    return result_df
-
-
 class MG2ActDataset(Dataset):
     """
     MG2Act dataset (simplified version).
