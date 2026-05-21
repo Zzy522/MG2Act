@@ -111,18 +111,18 @@ def run_inference(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="MG2Act 推理脚本")
-    parser.add_argument("--input", required=True, type=Path, help="推理输入CSV，需含 E3_seq/Target_seq/Molecule_SMILES")
-    parser.add_argument("--model_dir", required=True, type=Path, help="训练产出目录，含 mg2act_best.pt 与 results.json")
-    parser.add_argument("--output", type=Path, default=Path("predictions.csv"), help="输出预测CSV路径")
-    parser.add_argument("--batch_size", type=int, default=4, help="推理批大小")
+    parser = argparse.ArgumentParser(description="MG2Act inference script")
+    parser.add_argument("--input", required=True, type=Path, help="Input CSV for inference, must contain E3_seq/Target_seq/Molecule_SMILES")
+    parser.add_argument("--model_dir", required=True, type=Path, help="Training output directory containing mg2act_best.pt and results.json")
+    parser.add_argument("--output", type=Path, default=Path("predictions.csv"), help="Output path for predictions CSV")
+    parser.add_argument("--batch_size", type=int, default=4, help="Inference batch size")
     parser.add_argument(
         "--device",
         type=str,
         default="cuda:0" if torch.cuda.is_available() else "cpu",
         help="cpu or cuda:0",
     )
-    parser.add_argument("--quiet", action="store_true", help="少打印日志")
+    parser.add_argument("--quiet", action="store_true", help="no-log")
     return parser.parse_args()
 
 
