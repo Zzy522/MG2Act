@@ -30,6 +30,7 @@ from esm.sdk.api import ESMProteinTensor, LogitsConfig
 from esm.tokenization import EsmSequenceTokenizer
 
 from .utils import LayerNorm, ConvPooler
+from .embedding_cache import EmbeddingDiskCache, backbone_fingerprint
 
 
 class FunctionalGroupDetector:
@@ -446,14 +447,15 @@ class SequenceEncoder(nn.Module):
 
     Features:
     - Supports both pooled and token-level features
-    - Smart caching: Automatically caches encoded sequences to avoid recomputation
-    - Caching only during inference to ensure training consistency
+    - Caches only raw outputs of the frozen ESM-C backbone on CPU
+    - Runs the trainable projector on every call, including cache hits
     """
 
     def __init__(self, device: torch.device = torch.device("cpu"),
                  proj_method: str = "conv",  # "conv", "mlp", "linear"
                  embed_dim: int = 64,
-                 dropout: float = 0.1):
+                 dropout: float = 0.1,
+                 embedding_cache_dir: Optional[str] = None):
         super().__init__()
         self.device = device
         self.proj_method = proj_method
@@ -461,6 +463,11 @@ class SequenceEncoder(nn.Module):
 
         import os
         os.environ.setdefault("INFRA_PROVIDER", "True")
+        cache_dir = (os.environ.get("MG2ACT_EMBEDDING_CACHE", ".cache/esmc_embeddings")
+                     if embedding_cache_dir is None else embedding_cache_dir)
+        self.embedding_cache_dir = cache_dir if cache_dir and cache_dir.lower() != "off" else None
+        self._disk_cache = None
+        self._disk_hits = 0
     
         self.esmc = ESMC.from_pretrained("esmc_300m", device=device)
         self.tokenizer = EsmSequenceTokenizer()
@@ -472,8 +479,9 @@ class SequenceEncoder(nn.Module):
         self.any_unfrozen = False
         self.esmc.eval()
 
-        # Cache encoded results: Support both pooled and token-level features
-        self.cache = {}  # Format: {seq: {"pooled": tensor, "tokens": tensor}}
+        self.cache = {}  # {sequence: raw ESM-C embedding on CPU}
+        self._cache_signature = None
+        self.register_load_state_dict_post_hook(self._clear_cache_after_load)
 
         with torch.no_grad():
             tmp_tokens = self.tokenizer.encode("M")
@@ -520,6 +528,61 @@ class SequenceEncoder(nn.Module):
                 emb = logits_out.embeddings
 
         return emb.to(self.device)
+
+    def train(self, mode: bool = True):
+        super().train(mode)
+        if not any(p.requires_grad for p in self.esmc.parameters()):
+            self.esmc.eval()
+        return self
+
+    def _clear_cache_after_load(self, module, incompatible_keys):
+        self.clear_cache()
+
+    def _raw_embedding(self, seq: str):
+        # Inspect the actual backbone parameters rather than a stale flag.
+        self.any_unfrozen = any(p.requires_grad for p in self.esmc.parameters())
+        self.device = next(self.protein_projector.parameters()).device
+        settings = {
+            "device": str(self.device),
+            "autocast": torch.is_autocast_enabled(self.device.type),
+            "autocast_dtype": str(torch.get_autocast_dtype(self.device.type)),
+            "float32_matmul_precision": torch.get_float32_matmul_precision(),
+            "cuda_matmul_tf32": torch.backends.cuda.matmul.allow_tf32,
+            "cudnn_tf32": torch.backends.cudnn.allow_tf32,
+            "flash_attention": [(name, bool(m.use_flash_attn)) for name, m in
+                                self.esmc.named_modules() if hasattr(m, "use_flash_attn")],
+        }
+        if self.device.type == "cuda":
+            settings["gpu"] = torch.cuda.get_device_name(self.device)
+        signature = (repr(settings), tuple(
+            (name, id(t), t._version, t.device, t.dtype)
+            for name, t in list(self.esmc.named_parameters()) + list(self.esmc.named_buffers())
+        ))
+        if signature != self._cache_signature or self.any_unfrozen:
+            self.clear_cache()
+            self._cache_signature = signature
+        if self.any_unfrozen:
+            return self._encode_sequence(seq, use_grad=self.training)
+        if seq not in self.cache:
+            # A cache populated in inference_mode must still be usable later
+            # by autograd through a trainable projector.
+            with torch.inference_mode(False), torch.no_grad():
+                if self.embedding_cache_dir and self._disk_cache is None:
+                    self._disk_cache = EmbeddingDiskCache(
+                        self.embedding_cache_dir,
+                        backbone_fingerprint(self.esmc, self.tokenizer, settings),
+                    )
+                embedding = None
+                if self._disk_cache is not None:
+                    embedding = self._disk_cache.load(seq, len(self.tokenizer.encode(seq)), self.d_model)
+                if embedding is None:
+                    embedding = self._encode_sequence(seq, use_grad=False).detach().cpu().clone()
+                    if self._disk_cache is not None:
+                        self._disk_cache.save(seq, embedding)
+                else:
+                    self._disk_hits += 1
+                self.cache[seq] = embedding
+        return self.cache[seq].to(self.device)
 
     def _project_tokens(self, emb: torch.Tensor):
         """Internal method: Project ESMC embeddings at token level"""
@@ -574,110 +637,41 @@ class SequenceEncoder(nn.Module):
             If return_token_level=True: List of token-level features, each [L_i, embed_dim]
             If return_token_level=False: Encoded vectors [B, embed_dim]
         """
-        if return_token_level:
-            token_outputs = []
-
-            for seq in seq_list:
-                use_grad = self.any_unfrozen and self.training
-
-                # Check cache (inference only)
-                if not use_grad and seq in self.cache and "tokens" in self.cache[seq]:
-                    cached_tokens = self.cache[seq]["tokens"]
-                    if cached_tokens.device != self.device:
-                        cached_tokens = cached_tokens.to(self.device)
-                    token_outputs.append(cached_tokens)
-                    continue
-
-                # Encode sequence
-                emb = self._encode_sequence(seq, use_grad)
-                token_features = self._project_tokens(emb)
-
-                # Cache token-level features (inference only)
-                if not use_grad:
-                    if seq not in self.cache:
-                        self.cache[seq] = {}
-                    self.cache[seq]["tokens"] = token_features.detach().cpu()
-
-                token_outputs.append(token_features)
-
-            return token_outputs
-        else:
-            outputs: List[torch.Tensor] = []
-
-            for seq in seq_list:
-                use_grad = self.any_unfrozen and self.training
-
-                # Check cache (inference only)
-                if not use_grad and seq in self.cache and "pooled" in self.cache[seq]:
-                    cached_pooled = self.cache[seq]["pooled"]
-                    if cached_pooled.device != self.device:
-                        cached_pooled = cached_pooled.to(self.device)
-                    outputs.append(cached_pooled)
-                    continue
-
-                # Encode sequence
-                emb = self._encode_sequence(seq, use_grad)
-                pooled = self._pool_embedding(emb)
-
-                # Cache pooled features (inference only)
-                if not use_grad:
-                    if seq not in self.cache:
-                        self.cache[seq] = {}
-                    self.cache[seq]["pooled"] = pooled.detach().cpu()
-
-                outputs.append(pooled)
-
-            return torch.stack(outputs, dim=0)
+        project = self._project_tokens if return_token_level else self._pool_embedding
+        outputs = [project(self._raw_embedding(seq)) for seq in seq_list]
+        return outputs if return_token_level else torch.stack(outputs, dim=0)
 
     def preload_cache(self, seq_list: List[str], device: torch.device = None):
         """
-        Preload cache: Pre-encode common sequences to improve subsequent inference speed.
+        Preload raw frozen-backbone embeddings, without running the projector.
 
         Args:
             seq_list: List of sequences to preload
             device: Device (optional, defaults to encoder's device)
         """
-        if device is None:
-            device = self.device
-
-        # Silent preload to avoid excessive output
-        for seq in seq_list:
-            if seq not in self.cache:
-                try:
-                    # Encode and cache pooled features
-                    emb = self._encode_sequence(seq, use_grad=False)
-                    pooled = self._pool_embedding(emb)
-
-                    # Encode and cache token features
-                    token_features = self._project_tokens(emb)
-
-                    self.cache[seq] = {
-                        "pooled": pooled.detach().cpu(),
-                        "tokens": token_features.detach().cpu()
-                    }
-                except Exception:
-                    # Silently handle preload failures
-                    pass
+        if any(p.requires_grad for p in self.esmc.parameters()):
+            raise RuntimeError("Preloading requires a fully frozen ESM-C backbone.")
+        # device is retained for API compatibility; memory cache stays on CPU.
+        for seq in dict.fromkeys(seq_list):
+            self._raw_embedding(seq)
 
     def clear_cache(self):
         """Clear cache"""
         self.cache.clear()
+        self._cache_signature = None
+        self._disk_cache = None
+        self._disk_hits = 0
 
     def get_cache_info(self):
         """Get cache statistics"""
         total_sequences = len(self.cache)
-        pooled_count = sum(1 for v in self.cache.values() if "pooled" in v)
-        token_count = sum(1 for v in self.cache.values() if "tokens" in v)
-
-        cache_memory = 0
-        for seq_data in self.cache.values():
-            for key, tensor in seq_data.items():
-                cache_memory += tensor.numel() * tensor.element_size()
+        cache_memory = sum(t.numel() * t.element_size() for t in self.cache.values())
 
         return {
             "total_sequences": total_sequences,
-            "pooled_features": pooled_count,
-            "token_features": token_count,
+            "raw_embeddings": total_sequences,
+            "disk_hits": self._disk_hits,
+            "disk_cache_dir": self.embedding_cache_dir,
             "cache_memory_mb": cache_memory / (1024 * 1024)
         }
 

@@ -1,0 +1,12 @@
+# Minimal pinned direct runtime dependencies, matching the archived env.yaml.
+# Python 3.12.x is required by esm==3.2.2.post2.
+# Install the desired CPU/CUDA build of torch first (see README).
+# This file does not lock platform-specific transitive dependencies.
+torch==2.8.0
+torch-geometric==2.7.0
+esm==3.2.2.post2
+rdkit==2025.3.2
+numpy==2.3.4
+pandas==2.3.2
+scikit-learn==1.7.2
+tqdm==4.67.1

@@ -29,7 +29,7 @@ class MG2ActModel(nn.Module):
                  dropout: float = 0.1,
                  proj_method: str = "conv",  # "conv", "mlp", "linear"
                  # GNN molecule encoder configuration
-                 gnn_type: str = "gcn",  # "gcn" or "gat"
+                 gnn_type: str = "gat",  # "gcn" or "gat"
                  gnn_layers: int = 3,  # Number of GNN layers
                  gnn_hidden_dim: int = 128,  # GNN hidden layer dimension
                  node_feat_dim: int = 44,  # Node feature dimension
