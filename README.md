@@ -23,7 +23,7 @@ This repository contains the implementation of **MG2Act**, a deep learning frame
 
 ## 1. Environment Setup
 
-We recommend Python 3.10+.
+Python 3.12 is required by the pinned ESM dependency. Use Python 3.12.7 to reproduce the reported environment.
 
 Install dependencies according to your CUDA/PyTorch environment:
 
@@ -144,7 +144,7 @@ The output CSV will include:
 ## 6. Notes
 
 - Use module execution (`python -m ...`) because the project uses relative imports.
-- Ensure ESM-C weights are correctly placed in `data/weight/` before running.
+- Ensure ESM-C weights are correctly placed in `data/weights/` before running.
 - RDKit and PyG installation may vary by system/CUDA; verify compatibility first.
 
 ## Hardware and runtime
