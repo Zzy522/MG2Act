@@ -132,9 +132,6 @@ def train_fixed_split(train_csv, val_csv, args, device):
             torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
             optim.step()
 
-            if scheduler is not None:
-                scheduler.step()
-
             bs = y.size(0) if y.dim() > 0 else 1
             total += loss.item() * bs
             n += bs
@@ -146,6 +143,10 @@ def train_fixed_split(train_csv, val_csv, args, device):
 
 
         current_lr = optim.param_groups[0]['lr']
+        # T_max is expressed in epochs. Record the rate used in this epoch,
+        # then advance exactly once after training and validation are complete.
+        if scheduler is not None:
+            scheduler.step()
 
         # Update progress bar display info
         epoch_pbar.set_postfix({
@@ -215,25 +216,25 @@ def train_fixed_split(train_csv, val_csv, args, device):
     )
 
 
-def main():
+def build_parser():
     parser = argparse.ArgumentParser(description="MG2Act fixed split training script")
     parser.add_argument("--folder", type=str, required=True, help="Folder path containing train.csv, val.csv")
-    parser.add_argument("--epochs", type=int, default=150, help="Number of training epochs")
+    parser.add_argument("--epochs", type=int, default=200, help="Number of training epochs")
     parser.add_argument("--batch_size", type=int, default=8, help="Batch size")
-    parser.add_argument("--lr", type=float, default=3e-5, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
     parser.add_argument("--device", type=str, default="cpu", help="Device: cpu or cuda:0")
     parser.add_argument("--out", type=str, default="outputs", help="Output directory")
     
     # Model parameters
     parser.add_argument("--embed_dim", type=int, default=64, help="Embedding dimension")
-    parser.add_argument("--attn_heads", type=int, default=1, help="Number of attention heads")
+    parser.add_argument("--attn_heads", type=int, default=4, help="Number of attention heads")
     parser.add_argument("--decoder_layers", type=int, default=2, help="Number of Transformer Decoder layers")
     parser.add_argument("--mlp_hidden", type=str, default="128,64", help="MLP hidden layer dimensions")
     parser.add_argument("--dropout", type=float, default=0.1, help="Dropout rate")
     parser.add_argument("--proj_method", type=str, default="conv", choices=["conv", "mlp", "linear"],
                         help="Protein projection method: conv, mlp, linear")
     # Molecular encoder parameters (for building molecular graphs and extracting functional groups)
-    parser.add_argument("--gnn_type", type=str, default="gcn", choices=["gcn", "gat"],
+    parser.add_argument("--gnn_type", type=str, default="gat", choices=["gcn", "gat"],
                         help="GNN type: gcn or gat")
     parser.add_argument("--gnn_layers", type=int, default=3, help="Number of GNN layers")
     parser.add_argument("--gnn_hidden_dim", type=int, default=128, help="GNN hidden dimension")
@@ -243,8 +244,13 @@ def main():
                         help="Use multiscale attention (fixed to True)")
 
     # Optimization parameters
-    parser.add_argument("--use_cosine", action="store_true", help="Enable cosine annealing learning rate scheduling")
-    parser.add_argument("--early_stop_patience", type=int, default=0, help="Early stopping patience epochs (0=disabled)")
+    cosine = parser.add_mutually_exclusive_group()
+    cosine.add_argument("--use_cosine", action="store_true", dest="use_cosine",
+                        help="Enable cosine annealing (default)")
+    cosine.add_argument("--no_cosine", action="store_false", dest="use_cosine",
+                        help="Disable cosine annealing; use a constant learning rate")
+    parser.set_defaults(use_cosine=True)
+    parser.add_argument("--early_stop_patience", type=int, default=30, help="Early stopping patience epochs (0=disabled)")
 
     # Fusion method parameters
     parser.add_argument("--fusion_method", type=str, default="attention", choices=["attention", "concat"],
@@ -262,7 +268,11 @@ def main():
     parser.add_argument("--quiet", action="store_true",
                         help="Reduce output information (show only key information)")
     
-    args = parser.parse_args()
+    return parser
+
+
+def main():
+    args = build_parser().parse_args()
     
     # Set quiet flag (default to False if not explicitly set)
     if not hasattr(args, 'quiet'):
